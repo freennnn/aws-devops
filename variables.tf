@@ -37,6 +37,12 @@ variable "instance_type" {
   default     = "t2.micro" # Free Tier eligible
 }
 
+variable "key_name" {
+  description = "Name of the AWS key pair for SSH access (optional)"
+  type        = string
+  default     = null
+}
+
 # S3 configuration
 variable "app_bucket_name" {
   description = "Name for the application S3 bucket (must be globally unique)"

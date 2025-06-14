@@ -1,0 +1,21 @@
+# AWS DevOps Project Configuration - EXAMPLE
+# Copy this file to terraform.tfvars and customize the values
+
+# Project settings
+project_name = "rs-aws-devops"
+aws_region   = "us-west-2"  # Change to your preferred region
+
+# Network settings
+vpc_cidr           = "10.0.0.0/16"
+public_subnet_cidr = "10.0.1.0/24"
+ssh_cidr_blocks    = ["YOUR_IP_ADDRESS/32"]  # IMPORTANT: Replace with your actual IP!
+
+# EC2 settings (Free Tier)
+instance_type = "t3.micro"  # Free Tier eligible
+key_name      = "your-aws-key-name"  # Optional: Your AWS key pair name
+
+# S3 settings
+app_bucket_name = "rs-aws-devops-app-bucket-YOURNAME"  # MUST be globally unique!
+
+# Environment setting
+environment = "prod" 

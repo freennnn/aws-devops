@@ -25,6 +25,7 @@ module "compute" {
 
   project_name      = var.project_name
   instance_type     = var.instance_type
+  key_name          = var.key_name
   subnet_id         = module.networking.public_subnet_id
   security_group_id = module.networking.security_group_id
   s3_bucket_arn     = module.storage.bucket_arn

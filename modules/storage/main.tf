@@ -1,5 +1,6 @@
 resource "aws_s3_bucket" "app_data" {
   bucket = var.bucket_name
+  # bucket = "${var.bucket_name}-${random_string.bucket_suffix.result}"
 
   tags = {
     Name = "${var.project_name}-app-data"
@@ -30,4 +31,4 @@ resource "aws_s3_bucket_public_access_block" "app_data" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-} 
+}
