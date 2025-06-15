@@ -9,16 +9,12 @@
 
 # Remote backend configuration
 # We'll enable this after creating the state infrastructure
-# terraform {
-#   backend "s3" {
-#     bucket         = "BUCKET_NAME_FROM_OUTPUT"  # Will be filled after first apply
-#     key            = "terraform.tfstate"
-#     region         = "eu-north-1"
-#     encrypt        = true
-#     dynamodb_table = "rs-aws-devops-terraform-locks"
-#   }
-# }
-
-# STEP 2: After creating infrastructure, uncomment above and update bucket name
-
- 
+terraform {
+  backend "s3" {
+    bucket         = "rs-aws-devops-terraform-state-5lup1rlk"
+    key            = "terraform.tfstate"
+    region         = "eu-north-1"
+    dynamodb_table = "rs-aws-devops-terraform-locks"
+    encrypt        = true
+  }
+}
