@@ -21,5 +21,5 @@ variable "public_subnet_cidr" {
 variable "ssh_cidr_blocks" {
   description = "List of CIDR blocks allowed for SSH access"
   type        = list(string)
-  default     = ["0.0.0.0/0"]  # Consider restricting this in production
+  default     = ["0.0.0.0/0"] # Consider restricting this in production
 } 
