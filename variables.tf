@@ -34,20 +34,20 @@ variable "ssh_cidr_blocks" {
 variable "instance_type" {
   description = "EC2 instance type (Free Tier: t2.micro)"
   type        = string
-  default     = "t2.micro" # Free Tier eligible
+  default     = "t3.micro" # Free Tier eligible
 }
 
 variable "key_name" {
   description = "Name of the AWS key pair for SSH access (optional)"
   type        = string
-  default     = null
+  default     = "rs-devops-key"
 }
 
 # S3 configuration
 variable "app_bucket_name" {
   description = "Name for the application S3 bucket (must be globally unique)"
   type        = string
-  default     = "rs-aws-devops-app-bucket"
+  default     = "rs-aws-devops-app-bucket-freen"
 }
 
 # Environment configuration
@@ -55,6 +55,13 @@ variable "environment" {
   description = "Environment name (e.g., dev, staging, prod)"
   type        = string
   default     = "prod"
+}
+
+# GitHub Actions configuration
+variable "github_repository" {
+  description = "GitHub repository in format 'username/repository-name'"
+  type        = string
+  default     = "freen/rs-aws-devops" # Update this to match your GitHub repo
 }
 
 

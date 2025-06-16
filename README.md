@@ -85,6 +85,343 @@ aws-devops/
    terraform output
    ```
 
+## 🔐 IAM Authentication: Users vs Roles
+
+This project supports **two authentication approaches** for AWS access:
+
+### 🏗️ **Authentication Architecture**
+
+```
+Root User (you)
+├── IAM User Group (existing - for personal use)
+│   └── IAM User (existing - for personal use)
+│       └── Access Keys (permanent credentials)
+│           └── AWS CLI uses these keys
+└── OIDC Identity Provider (NEW - trusts GitHub)
+    └── IAM Role "GithubActionsRole" (NEW - for automation)
+        └── GitHub Actions assumes this role (temporary credentials)
+```
+
+### 🆚 **User vs Role Comparison**
+
+| Aspect | IAM User (Personal) | IAM Role (GitHub Actions) |
+|--------|-------------------|---------------------------|
+| **Credentials** | Permanent access keys | Temporary tokens (1 hour) |
+| **Storage** | Stored locally/GitHub secrets | No permanent storage needed |
+| **Security Risk** | If leaked, works forever | If leaked, expires quickly |
+| **Use Case** | Human access (CLI, Console) | Application/Service access |
+| **Rotation** | Manual key rotation needed | Automatic token refresh |
+| **Audit** | User actions logged | Role assumption logged |
+
+### 🔑 **Approach 1: IAM User (Current Setup)**
+
+**Best for**: Personal development, AWS CLI usage, learning
+
+```bash
+# Your current setup
+aws configure
+# Uses permanent access keys stored in ~/.aws/credentials
+```
+
+**GitHub Actions Configuration**:
+```yaml
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+**Pros**:
+- ✅ Simple to set up
+- ✅ Works immediately
+- ✅ Good for learning/development
+
+**Cons**:
+- ❌ Permanent credentials (security risk)
+- ❌ Manual key rotation required
+- ❌ Same keys used everywhere
+
+### 🎭 **Approach 2: IAM Role (Recommended for Production)**
+
+**Best for**: Production deployments, team collaboration, enhanced security
+
+**GitHub Actions Configuration**:
+```yaml
+permissions:
+  id-token: write   # Allow GitHub to get identity token
+  contents: read
+
+steps:
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::ACCOUNT:role/GithubActionsRole
+    aws-region: eu-north-1
+```
+
+**Pros**:
+- ✅ No permanent secrets in GitHub
+- ✅ Automatic credential rotation (1-hour tokens)
+- ✅ Enhanced security and audit trail
+- ✅ Follows AWS best practices
+
+**Cons**:
+- ❌ More complex initial setup
+- ❌ Requires understanding of OIDC/roles
+
+### 🚀 **Setting Up IAM Role for GitHub Actions**
+
+#### Step 1: Apply Terraform Configuration
+```bash
+# The github-actions-iam.tf file creates:
+# - OIDC Identity Provider (trusts GitHub)
+# - IAM Role with required permissions
+# - Trust policy linking role to your repository
+
+terraform apply
+```
+
+#### Step 2: Update GitHub Repository Settings
+
+**Repository Variables** (Settings → Secrets and variables → Actions → Variables):
+```
+TF_VAR_PROJECT_NAME=rs-aws-devops
+TF_VAR_AWS_REGION=eu-north-1
+TF_VAR_APP_BUCKET_NAME=rs-aws-devops-app-bucket-freen
+TF_VAR_KEY_NAME=rs-devops-key
+TF_VAR_SSH_CIDR_BLOCKS=["0.0.0.0/0"]
+TF_VAR_GITHUB_REPOSITORY=your-username/your-repo-name
+```
+
+#### Step 3: Remove Old Secrets (if using role approach)
+- Remove `AWS_ACCESS_KEY_ID` from repository secrets
+- Remove `AWS_SECRET_ACCESS_KEY` from repository secrets
+
+### 🔄 **How Temporary Credentials Work**
+
+#### Each GitHub Actions Run:
+```
+Workflow Starts
+├── GitHub requests temporary token from AWS (1 hour validity)
+├── Run terraform commands using temporary token
+├── Token automatically refreshes if workflow runs > 1 hour
+└── Workflow ends → Token expires and becomes useless
+```
+
+#### Multiple Runs Over Time:
+```
+Monday 9 AM: New workflow → Fresh 1-hour token → Deploy → Token expires
+Tuesday 9 AM: New workflow → Fresh 1-hour token → Deploy → Token expires
+Wednesday 9 AM: New workflow → Fresh 1-hour token → Deploy → Token expires
+```
+
+### 🛡️ **Security Benefits of Roles**
+
+1. **No Permanent Secrets**: No long-term credentials stored in GitHub
+2. **Automatic Expiration**: Tokens expire in 1 hour, limiting damage if compromised
+3. **Audit Trail**: AWS CloudTrail logs when GitHub assumes the role
+4. **Granular Control**: Role only works for your specific repository
+5. **Principle of Least Privilege**: Role has only necessary permissions
+
+### 🔧 **Choosing Your Approach**
+
+#### Use **IAM User** if:
+- 👨‍💻 Learning Terraform/AWS
+- 🏠 Personal projects only
+- 🚀 Want quick setup
+- 📚 Focusing on infrastructure concepts
+
+#### Use **IAM Role** if:
+- 🏢 Production deployments
+- 👥 Team collaboration
+- 🔒 Security is a priority
+- 📈 Scaling beyond personal use
+
+### 📋 **Migration Path**
+
+**Phase 1**: Start with IAM User (simple, works immediately)
+**Phase 2**: Learn the concepts, get comfortable with Terraform
+**Phase 3**: Migrate to IAM Role (enhanced security, production-ready)
+
+Both approaches are valid and can coexist. Your personal AWS CLI can use IAM User credentials while GitHub Actions uses the IAM Role.
+
+### 🔄 **Migration from Access Keys to Role-Based Authentication**
+
+#### 🥚🐔 **The Chicken-and-Egg Problem**
+
+When migrating from IAM User to IAM Role, you face a bootstrap challenge:
+
+- **To create the IAM role**: You need AWS credentials to run `terraform apply`
+- **To remove access keys**: You need the role to be created first
+- **But to create the role**: You need the access keys!
+
+#### 📋 **Step-by-Step Migration Process**
+
+**⚠️ Important**: Don't remove access keys until the role is working!
+
+##### **Phase 1: Create the Role Infrastructure**
+
+**Step 1: Apply Terraform (Uses Current Access Keys)**
+```bash
+# This creates the OIDC provider and IAM role
+terraform apply
+```
+
+**Step 2: Get the Role ARN**
+```bash
+terraform output github_actions_role_arn
+# Output: arn:aws:iam::123456789012:role/GithubActionsRole
+```
+
+**Step 3: Add Role ARN to GitHub Variables**
+Go to GitHub → Settings → Secrets and variables → Actions → Variables:
+```
+GITHUB_ACTIONS_ROLE_ARN=arn:aws:iam::ACCOUNT:role/GithubActionsRole
+```
+
+##### **Phase 2: Update GitHub Actions Workflow**
+
+**Step 4: Create Role-Based Workflow**
+Update `.github/workflows/terraform.yml` to use role instead of access keys:
+
+```yaml
+# OLD - Access Key Based (remove this)
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+# NEW - Role Based (add this)
+permissions:
+  id-token: write   # Critical for OIDC
+  contents: read
+
+steps:
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: ${{ vars.GITHUB_ACTIONS_ROLE_ARN }}
+    aws-region: eu-north-1
+```
+
+**Step 5: Test the New Authentication**
+- Push a change to trigger the workflow
+- Verify all jobs pass with role-based auth
+- Check AWS CloudTrail for role assumption logs
+
+##### **Phase 3: Clean Up (Only After Testing)**
+
+**Step 6: Remove Access Keys from GitHub**
+Only after confirming role-based auth works:
+- Delete `AWS_ACCESS_KEY_ID` from GitHub repository secrets
+- Delete `AWS_SECRET_ACCESS_KEY` from GitHub repository secrets
+
+#### 🛡️ **Why This Phased Approach?**
+
+**Safety Reasons:**
+1. **Terraform state is in S3** - need credentials to access remote state
+2. **Role creation requires auth** - can't create role without existing credentials
+3. **Rollback capability** - can revert if role auth fails
+4. **Testing validation** - ensure role works before removing fallback
+
+#### 🔍 **What Gets Created by `github-actions-iam.tf`**
+
+**1. OIDC Identity Provider**
+```hcl
+# Tells AWS: "Trust tokens from GitHub Actions"
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  url = "https://token.actions.githubusercontent.com"
+  # GitHub's SSL certificate thumbprints for security
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+```
+
+**2. IAM Role with Trust Policy**
+```hcl
+# Role that GitHub Actions can "become"
+resource "aws_iam_role" "github_actions" {
+  name = "GithubActionsRole"
+  # Trust policy: Only YOUR repository can assume this role
+  assume_role_policy = {
+    Condition = {
+      StringLike = {
+        "token.actions.githubusercontent.com:sub" = "repo:freen/rs-aws-devops:*"
+      }
+    }
+  }
+}
+```
+
+**3. AWS Managed Policy Attachments**
+- `AmazonEC2FullAccess` - Manage EC2 instances
+- `AmazonRoute53FullAccess` - DNS management
+- `AmazonS3FullAccess` - S3 bucket operations
+- `IAMFullAccess` - IAM role/policy management
+- `AmazonVPCFullAccess` - Network infrastructure
+- `AmazonSQSFullAccess` - Queue services
+- `AmazonEventBridgeFullAccess` - Event management
+
+#### 🔄 **How Role-Based Authentication Works**
+
+**Each GitHub Actions Run:**
+```
+1. Workflow starts
+2. GitHub generates OIDC token (contains repo info)
+3. GitHub sends token to AWS STS
+4. AWS validates token against OIDC provider
+5. AWS checks trust policy (is this the right repo?)
+6. AWS issues temporary credentials (1 hour)
+7. Workflow runs with temporary credentials
+8. Credentials expire when workflow ends
+```
+
+**Security Benefits:**
+- ✅ **No permanent secrets** stored in GitHub
+- ✅ **Automatic credential rotation** (1-hour tokens)
+- ✅ **Repository-specific access** (only your repo can use the role)
+- ✅ **Audit trail** (AWS CloudTrail logs role assumptions)
+- ✅ **Principle of least privilege** (role has only necessary permissions)
+
+#### 🚨 **Troubleshooting Role-Based Auth**
+
+**Common Issues:**
+
+1. **"No permission to assume role"**
+   - Check `github_repository` variable matches your actual repo
+   - Verify OIDC provider is created
+   - Ensure trust policy conditions are correct
+
+2. **"Invalid identity token"**
+   - Add `permissions: id-token: write` to workflow
+   - Check GitHub repository settings allow OIDC
+
+3. **"Role not found"**
+   - Verify role ARN is correct in GitHub variables
+   - Ensure `terraform apply` completed successfully
+
+**Debug Steps:**
+```bash
+# Check if role exists
+aws iam get-role --role-name GithubActionsRole
+
+# Check role ARN
+terraform output github_actions_role_arn
+
+# Validate OIDC provider
+aws iam list-open-id-connect-providers
+```
+
+#### 📊 **Comparison: Before vs After Migration**
+
+| Aspect | Access Keys (Before) | IAM Role (After) |
+|--------|---------------------|------------------|
+| **Credentials** | Permanent (never expire) | Temporary (1 hour) |
+| **Storage** | GitHub secrets | No storage needed |
+| **Security Risk** | High (if leaked, permanent access) | Low (tokens expire quickly) |
+| **Rotation** | Manual (you must rotate) | Automatic (AWS handles it) |
+| **Audit** | User actions logged | Role assumption + actions logged |
+| **Repository Scope** | Can be used anywhere | Only your specific repository |
+| **Setup Complexity** | Simple | More complex initially |
+| **Production Ready** | Not recommended | AWS best practice |
+
 ## 🌐 Networking Module Deep Dive
 
 ### Architecture Diagram
