@@ -61,7 +61,7 @@ variable "environment" {
 variable "github_repository" {
   description = "GitHub repository in format 'username/repository-name'"
   type        = string
-  default     = "freen/rs-aws-devops" # Update this to match your GitHub repo
+  default     = "freennnn/aws-devops" # Update this to match your GitHub repo
 }
 
 
