@@ -90,6 +90,11 @@ resource "aws_iam_role_policy_attachment" "github_actions_eventbridge" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess"
 }
 
+resource "aws_iam_role_policy_attachment" "github_actions_dynamodb" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+}
+
 # Output the role ARN for use in GitHub Actions
 output "github_actions_role_arn" {
   description = "ARN of the GitHub Actions IAM role"
