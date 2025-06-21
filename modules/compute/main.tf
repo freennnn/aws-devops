@@ -104,3 +104,4 @@ resource "aws_iam_instance_profile" "ec2_s3_access" {
   name = "${var.project_name}-ec2-s3-profile"
   role = aws_iam_role.ec2_s3_access.name
 }
+ 
