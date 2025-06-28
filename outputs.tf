@@ -127,4 +127,46 @@ output "ssh_connection_private_via_bastion" {
   value       = var.deploy_to_private ? "ssh -i ~/.ssh/${var.key_name}.pem -J ec2-user@${module.bastion.bastion_public_ip} ec2-user@${module.compute.instance_private_ip}" : "Direct SSH to public instance"
 }
 
- 
+# Kubernetes cluster outputs
+output "k3s_master_instance_id" {
+  description = "ID of the K3s master instance"
+  value       = module.kubernetes.k3s_master_instance_id
+}
+
+output "k3s_master_private_ip" {
+  description = "Private IP address of the K3s master"
+  value       = module.kubernetes.k3s_master_private_ip
+}
+
+output "k3s_worker_instance_id" {
+  description = "ID of the K3s worker instance"
+  value       = module.kubernetes.k3s_worker_instance_id
+}
+
+output "k3s_worker_private_ip" {
+  description = "Private IP address of the K3s worker"
+  value       = module.kubernetes.k3s_worker_private_ip
+}
+
+output "k3s_cluster_endpoint" {
+  description = "K3s cluster API endpoint"
+  value       = module.kubernetes.k3s_cluster_endpoint
+}
+
+# Connection commands for K8s management
+output "ssh_connection_k3s_master" {
+  description = "SSH command to connect to K3s master node via bastion"
+  value       = var.deploy_k3s_to_private ? "ssh -i ~/.ssh/${var.key_name}.pem -J ec2-user@${module.bastion.bastion_public_ip} ubuntu@${module.kubernetes.k3s_master_private_ip}" : "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${module.kubernetes.k3s_master_private_ip}"
+}
+
+output "ssh_connection_k3s_worker" {
+  description = "SSH command to connect to K3s worker node via bastion"
+  value       = var.deploy_k3s_to_private ? "ssh -i ~/.ssh/${var.key_name}.pem -J ec2-user@${module.bastion.bastion_public_ip} ubuntu@${module.kubernetes.k3s_worker_private_ip}" : "ssh -i ~/.ssh/${var.key_name}.pem ubuntu@${module.kubernetes.k3s_worker_private_ip}"
+}
+
+output "kubectl_setup_command" {
+  description = "Command to setup kubectl on bastion host"
+  value       = "ssh -i ~/.ssh/${var.key_name}.pem ec2-user@${module.bastion.bastion_public_ip} './setup-kubeconfig.sh ${module.kubernetes.k3s_master_private_ip} ~/.ssh/${var.key_name}.pem'"
+}
+
+

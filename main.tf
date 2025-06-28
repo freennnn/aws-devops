@@ -49,3 +49,17 @@ module "compute" {
   s3_bucket_arn     = module.storage.bucket_arn
 }
 
+# Kubernetes module (K3s cluster)
+module "kubernetes" {
+  source = "./modules/kubernetes"
+
+  project_name         = var.project_name
+  master_instance_type = var.k3s_master_instance_type
+  worker_instance_type = var.k3s_worker_instance_type
+  key_name             = var.key_name
+  master_subnet_id     = var.deploy_k3s_to_private ? module.networking.private_subnet_1_id : module.networking.public_subnet_1_id
+  worker_subnet_id     = var.deploy_k3s_to_private ? module.networking.private_subnet_2_id : module.networking.public_subnet_2_id
+  security_group_id    = module.networking.kubernetes_security_group_id
+  k3s_token            = var.k3s_cluster_token
+}
+

@@ -186,4 +186,107 @@ resource "aws_security_group" "database" {
     ManagedBy   = "terraform"
     Project     = var.project_name
   }
-} 
+}
+
+# Kubernetes Security Group (for k3s cluster nodes)
+resource "aws_security_group" "kubernetes" {
+  name        = "${var.project_name}-k8s-sg"
+  description = "Security group for Kubernetes cluster nodes"
+  vpc_id      = aws_vpc.main.id
+
+  # SSH from bastion
+  ingress {
+    description     = "SSH from bastion"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+  }
+
+  # k3s API server
+  ingress {
+    description = "k3s API server"
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    self        = true
+  }
+
+  # k3s API server from bastion (for kubectl access)
+  ingress {
+    description     = "k3s API server from bastion"
+    from_port       = 6443
+    to_port         = 6443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion.id]
+  }
+
+  # Flannel VXLAN
+  ingress {
+    description = "Flannel VXLAN"
+    from_port   = 8472
+    to_port     = 8472
+    protocol    = "udp"
+    self        = true
+  }
+
+  # k3s metrics server
+  ingress {
+    description = "k3s metrics server"
+    from_port   = 10250
+    to_port     = 10250
+    protocol    = "tcp"
+    self        = true
+  }
+
+  # NodePort services range
+  ingress {
+    description = "NodePort services"
+    from_port   = 30000
+    to_port     = 32767
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  # HTTP/HTTPS for ingress
+  ingress {
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # All traffic within the security group (for cluster internal communication)
+  ingress {
+    description = "All traffic within cluster"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+  }
+
+  # All outbound traffic
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project_name}-k8s-sg"
+    Environment = "prod"
+    ManagedBy   = "terraform"
+    Project     = var.project_name
+  }
+}

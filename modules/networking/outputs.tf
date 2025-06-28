@@ -74,6 +74,11 @@ output "database_security_group_id" {
   value       = aws_security_group.database.id
 }
 
+output "kubernetes_security_group_id" {
+  description = "ID of the Kubernetes security group"
+  value       = aws_security_group.kubernetes.id
+}
+
 # Availability Zone Outputs
 output "availability_zones" {
   description = "List of availability zones used"
@@ -89,4 +94,4 @@ output "public_route_table_id" {
 output "private_route_table_ids" {
   description = "IDs of the private route tables"
   value       = [aws_route_table.private_1.id, aws_route_table.private_2.id]
-} 
+}

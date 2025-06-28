@@ -118,5 +118,31 @@ variable "github_repository" {
   default     = "freennnn/aws-devops" # Update this to match your GitHub repo
 }
 
+# Kubernetes configuration
+variable "k3s_master_instance_type" {
+  description = "EC2 instance type for K3s master node"
+  type        = string
+  default     = "t3.micro" # Free Tier eligible
+}
+
+variable "k3s_worker_instance_type" {
+  description = "EC2 instance type for K3s worker node"
+  type        = string
+  default     = "t3.micro" # Free Tier eligible
+}
+
+variable "deploy_k3s_to_private" {
+  description = "Deploy K3s cluster nodes to private subnets (requires bastion for access)"
+  type        = bool
+  default     = true # Deploy to private subnets for better security
+}
+
+variable "k3s_cluster_token" {
+  description = "Token for K3s cluster authentication"
+  type        = string
+  default     = "k3s-cluster-secret-token-12345"
+  sensitive   = true
+}
+
 
 
