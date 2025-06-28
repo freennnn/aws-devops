@@ -1,6 +1,6 @@
-# AWS DevOps Infrastructure - Task 2: Basic Kubernetes Networking Configuration
+# AWS DevOps Infrastructure - Complete K8s Cluster Deployment
 
-This repository contains Terraform code for creating a production-ready, multi-AZ networking infrastructure suitable for Kubernetes clusters on AWS.
+This repository contains Terraform code for creating a production-ready, multi-AZ networking infrastructure with a fully operational 2-node K3s Kubernetes cluster on AWS.
 
 ## 🏗️ Architecture Overview
 
@@ -17,9 +17,27 @@ Internet
     │   └── NAT Gateways
     │
     └── Private Subnets (Multi-AZ)
-        ├── AZ1: 10.0.3.0/24
-        ├── AZ2: 10.0.4.0/24
+        ├── AZ1: 10.0.3.0/24 (K3s Master)
+        ├── AZ2: 10.0.4.0/24 (K3s Worker)
         └── Application Instances
+```
+
+### K3s Cluster Architecture
+```
+Bastion Host (Public)
+    │
+    ├── SSH Jump Host
+    │
+    └── K3s Cluster (Private Subnets)
+        ├── Master Node (AZ1: 10.0.3.59)
+        │   ├── Control Plane
+        │   ├── etcd
+        │   └── API Server (6443)
+        │
+        └── Worker Node (AZ2: 10.0.4.96)
+            ├── kubelet
+            ├── Container Runtime
+            └── Application Pods
 ```
 
 ### Key Components
@@ -70,15 +88,36 @@ Internet
    - MySQL (3306) from application tiers
    - PostgreSQL (5432) from application tiers
 
+5. **Kubernetes Security Group** (`kubernetes-sg`)
+   - K3s API Server (6443) from bastion
+   - K3s Flannel VXLAN (8472) UDP
+   - K3s Metrics Server (10250)
+   - NodePort Services (30000-32767)
+   - All traffic within VPC
+
 #### 🏰 **Bastion Host**
 - **Purpose**: Secure jump server for private subnet access
 - **Location**: Public subnet in AZ1
 - **Instance Type**: `t3.micro` (Free Tier eligible)
 - **Features**:
   - AWS CLI v2 pre-installed
+  - kubectl and helm pre-installed
+  - K3s kubeconfig setup script
   - Session Manager plugin
   - Enhanced SSH security
   - CloudWatch agent ready
+
+#### ☸️ **K3s Kubernetes Cluster**
+- **Architecture**: 2-node cluster (master + worker)
+- **Version**: v1.32.5+k3s1 (latest stable)
+- **Container Runtime**: containerd://2.0.5-k3s1.32
+- **Network Plugin**: Flannel (VXLAN)
+- **Features**:
+  - **Master Node**: Control plane, etcd, API server
+  - **Worker Node**: kubelet, container runtime, pod scheduling
+  - **High Availability**: Multi-AZ deployment
+  - **Security**: Private subnet deployment, no public IPs
+  - **Access**: Via bastion host only
 
 #### 🛣️ **Route Tables**
 - **Public Route Table**: Routes to Internet Gateway (0.0.0.0/0)
@@ -98,6 +137,12 @@ Internet
 │   │   ├── variables.tf         # Input variables
 │   │   ├── outputs.tf           # Output values
 │   │   └── user_data.sh         # Startup script
+│   ├── kubernetes/
+│   │   ├── main.tf              # K3s master and worker instances
+│   │   ├── variables.tf         # Input variables
+│   │   ├── outputs.tf           # Output values
+│   │   ├── k3s_master_user_data.sh  # Master node setup script
+│   │   └── k3s_worker_user_data.sh  # Worker node setup script
 │   ├── compute/
 │   │   └── ...                  # Application instances
 │   └── storage/
@@ -162,6 +207,10 @@ Internet
 | `enable_nat_gateway` | Enable NAT Gateway (vs NAT instance) | `true` | No |
 | `key_name` | AWS key pair name | `rs-devops-key` | Yes |
 | `deploy_to_private` | Deploy apps to private subnets | `false` | No |
+| `k3s_master_instance_type` | K3s master instance type | `t3.micro` | No |
+| `k3s_worker_instance_type` | K3s worker instance type | `t3.micro` | No |
+| `deploy_k3s_to_private` | Deploy K3s to private subnets | `true` | No |
+| `k3s_cluster_token` | K3s cluster authentication token | `k3s-cluster-secret-token-12345` | No |
 
 ### Example terraform.tfvars
 
@@ -174,6 +223,12 @@ key_name = "my-key-pair"
 enable_nat_gateway = true
 deploy_to_private = true
 ssh_cidr_blocks = ["1.2.3.4/32"]  # Your IP address
+
+# K3s Cluster Configuration
+k3s_master_instance_type = "t3.micro"
+k3s_worker_instance_type = "t3.micro"
+deploy_k3s_to_private = true
+k3s_cluster_token = "my-secure-k3s-token-2024"
 ```
 
 ## 🔐 Security Best Practices
@@ -203,6 +258,43 @@ ssh -i ~/.ssh/your-key.pem ec2-user@<bastion-public-ip>
 ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ec2-user@<private-ip>
 ```
 
+**Connect to K3s Master Node:**
+```bash
+ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ubuntu@<k3s-master-ip>
+```
+
+**Connect to K3s Worker Node:**
+```bash
+ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ubuntu@<k3s-worker-ip>
+```
+
+### Kubernetes Cluster Access
+
+**Check Cluster Status:**
+```bash
+# From bastion host
+ssh -i ~/.ssh/your-key.pem ubuntu@<k3s-master-ip> \
+  "sudo kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes"
+```
+
+**Deploy Test Application:**
+```bash
+# Deploy nginx pod
+ssh -i ~/.ssh/your-key.pem ubuntu@<k3s-master-ip> \
+  "sudo kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml \
+  apply -f https://k8s.io/examples/pods/simple-pod.yaml"
+
+# Check pod status
+ssh -i ~/.ssh/your-key.pem ubuntu@<k3s-master-ip> \
+  "sudo kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -o wide"
+```
+
+**Setup Kubeconfig on Bastion (Optional):**
+```bash
+# Run the setup script from bastion
+./setup-kubeconfig.sh <k3s-master-ip> ~/.ssh/your-key.pem
+```
+
 ### Resource Information
 
 After deployment, Terraform outputs provide:
@@ -211,11 +303,20 @@ After deployment, Terraform outputs provide:
 - Bastion host connection details
 - NAT Gateway IDs
 - SSH connection commands
+- **K3s cluster information**:
+  - Cluster endpoint (`https://<master-ip>:6443`)
+  - Master and worker node IPs
+  - Instance IDs
+  - SSH connection commands for K3s nodes
 
 ## 💰 Cost Optimization
 
 ### Free Tier Eligible Resources
 - **EC2 Instances**: t3.micro (750 hours/month)
+  - Bastion host: 1 instance
+  - K3s master: 1 instance  
+  - K3s worker: 1 instance
+  - **Total**: 3 instances (within Free Tier limit)
 - **EBS Storage**: 30 GB General Purpose SSD
 - **Data Transfer**: 15 GB outbound per month
 
@@ -273,11 +374,18 @@ After deployment, verify the infrastructure:
 # Test bastion connectivity
 ssh -i ~/.ssh/your-key.pem ec2-user@<bastion-ip>
 
-# Test private instance connectivity (if deployed)
-ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ec2-user@<private-ip>
+# Test K3s master connectivity
+ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ubuntu@<k3s-master-ip>
+
+# Test K3s worker connectivity  
+ssh -i ~/.ssh/your-key.pem -J ec2-user@<bastion-ip> ubuntu@<k3s-worker-ip>
 
 # Test internet connectivity from private instance
 curl -I https://google.com
+
+# Test K3s cluster functionality
+ssh -i ~/.ssh/your-key.pem ubuntu@<k3s-master-ip> \
+  "sudo kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get nodes"
 ```
 
 ## 🚀 CI/CD Integration

@@ -1,6 +1,12 @@
 # AWS DevOps Project Configuration - EXAMPLE
 # Copy this file to terraform.tfvars and customize the values
 
+# IMPORTANT NOTES:
+# 1. Replace YOUR_IP_ADDRESS/32 with your actual IP for security
+# 2. Change k3s_cluster_token to a secure random string
+# 3. All instances use t3.micro (Free Tier eligible)
+# 4. Make sure your AWS key pair exists in the selected region
+
 # Project settings
 project_name = "rs-aws-devops"
 aws_region   = "us-west-2"  # Change to your preferred region
@@ -13,7 +19,7 @@ private_subnet_1_cidr  = "10.0.3.0/24"
 private_subnet_2_cidr  = "10.0.4.0/24"
 availability_zone_1    = "us-west-2a"
 availability_zone_2    = "us-west-2b"
-ssh_cidr_blocks        = ["YOUR_IP_ADDRESS/32"]  # IMPORTANT: Replace with your actual IP!
+ssh_cidr_blocks        = ["0.0.0.0/0"]  # IMPORTANT: Replace with your actual IP!
 
 # Infrastructure options
 enable_nat_gateway     = true   # Set to false for cheaper NAT instances
@@ -29,4 +35,14 @@ key_name              = "your-aws-key-name"  # Your AWS key pair name
 app_bucket_name = "rs-aws-devops-app-bucket-YOURNAME"  # MUST be globally unique!
 
 # Environment setting
-environment = "prod" 
+environment = "prod"
+
+# Kubernetes (K3s) settings
+k3s_master_instance_type = "t3.micro"  # Free Tier eligible
+k3s_worker_instance_type = "t3.micro"  # Free Tier eligible
+deploy_k3s_to_private    = true        # Deploy K3s to private subnets (recommended)
+k3s_cluster_token        = "your-secure-k3s-token-here"  # Change this to a secure token!
+
+# GitHub Actions (optional)
+# AWS IAM trust policy that says: "Only GitHub Actions running from the repository username/repository-name can assume this AWS role"
+github_repository = "freennnn/aws-devops"

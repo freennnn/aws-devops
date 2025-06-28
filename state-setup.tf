@@ -6,10 +6,10 @@
 resource "aws_s3_bucket" "terraform_state" {
   bucket = "${var.project_name}-terraform-state-${random_string.bucket_suffix.result}"
 
-  # Prevent accidental deletion of this S3 bucket
-  lifecycle {
-    prevent_destroy = true
-  }
+  # Prevent accidental deletion of this S3 bucket (temporarily disabled for cleanup)
+  # lifecycle {
+  #   prevent_destroy = true
+  # }
 
   tags = {
     Name        = "${var.project_name}-terraform-state"
@@ -81,4 +81,4 @@ output "terraform_state_bucket" {
 output "terraform_locks_table" {
   description = "Name of the DynamoDB table for Terraform state locking"
   value       = aws_dynamodb_table.terraform_locks.name
-} 
+}
