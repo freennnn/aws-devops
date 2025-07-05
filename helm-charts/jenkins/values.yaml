@@ -1,0 +1,187 @@
+jenkins:
+  # Jenkins Configuration as Code
+  JCasC:
+    defaultConfig: true
+    configScripts:
+      hello-world-job: |
+        jobs:
+          - script: >
+              freeStyleJob('hello-world') {
+                displayName('Hello World Job')
+                description('A simple Hello World job created via JCasC')
+                steps {
+                  shell('echo "Hello World"')
+                }
+              }
+      security-settings: |
+        jenkins:
+          securityRealm:
+            local:
+              allowsSignup: false
+              users:
+                - id: admin
+                  password: ${JENKINS_ADMIN_PASSWORD}
+          authorizationStrategy:
+            loggedInUsersCanDoAnything:
+              allowAnonymousRead: false
+  
+  # Controller configuration
+  controller:
+    image: jenkins/jenkins
+    tag: 2.401.3-lts
+    imagePullPolicy: Always
+    
+    # Resources
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 2000m
+        memory: 4096Mi
+    
+    # Java options
+    javaOpts: >-
+      -Djenkins.install.runSetupWizard=false
+      -Djava.awt.headless=true
+    
+    # Jenkins URL
+    jenkinsUrl: http://localhost:8080
+    
+    # Admin user
+    admin:
+      existingSecret: ""
+      userKey: jenkins-admin-user
+      passwordKey: jenkins-admin-password
+    
+    # Service configuration
+    serviceType: ClusterIP
+    servicePort: 8080
+    targetPort: 8080
+    
+    # Ingress
+    ingress:
+      enabled: false
+    
+    # Persistence
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 8Gi
+      accessMode: ReadWriteOnce
+    
+    # Install plugins
+    installPlugins:
+      - kubernetes:3706.vdfb_d599579f3
+      - workflow-aggregator:2.6
+      - git:4.8.3
+      - configuration-as-code:1625.v27444588cc3d
+      - job-dsl:1.81
+      - blueocean:1.25.2
+      - pipeline-stage-view:2.25
+      - build-timeout:1.27
+      - credentials-binding:523.vd859a_4b_122e6
+      - timestamper:1.17
+      - ws-cleanup:0.42
+      - ant:475.vf34069fef73c
+      - gradle:1.39.4
+      - workflow-support:839.v35e2736cfd5c
+      - pipeline-maven:3.10.0
+      - pipeline-graph-analysis:195.v5812d95a_a_2f9
+      - ssh-slaves:1.834.v622da_57f702c
+      - matrix-auth:3.1.5
+      - pam-auth:1.10
+      - ldap:2.12
+      - email-ext:2.93
+      - mailer:448.v5b_97805e3767d
+    
+    # Security
+    csrf:
+      defaultCrumbIssuer:
+        enabled: true
+        proxyCompatability: true
+    
+    # Agent configuration
+    numExecutors: 2
+    
+    # JVM options
+    jvmOpts: >-
+      -XX:+UseG1GC
+      -XX:+UseStringDeduplication
+      -XX:+ParallelRefProcEnabled
+      -XX:+DisableExplicitGC
+      -XX:+UnlockExperimentalVMOptions
+      -XX:G1NewSizePercent=20
+      -XX:+UnlockDiagnosticVMOptions
+      -XX:G1SummarizeRSetStatsPeriod=1
+  
+  # Agent configuration
+  agent:
+    enabled: true
+    image: jenkins/inbound-agent
+    tag: 4.13.3-1
+    workingDir: /home/jenkins/agent
+    nodeUsageMode: NORMAL
+    customJenkinsLabels: []
+    
+    # Resources
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 1000m
+        memory: 2048Mi
+    
+    # Pod retention
+    podRetention: Never
+    showRawYaml: true
+    
+    # Volumes
+    volumes:
+      - type: Empty
+        mountPath: /tmp
+        
+    # Pod templates
+    podTemplates:
+      python: |
+        - name: python
+          label: python
+          serviceAccount: jenkins
+          containers:
+            - name: python
+              image: python:3.9
+              command: "/bin/sh -c"
+              args: "cat"
+              ttyEnabled: true
+              privileged: false
+              resourceRequestCpu: 100m
+              resourceRequestMemory: 128Mi
+              resourceLimitCpu: 1000m
+              resourceLimitMemory: 1024Mi
+  
+  # Persistence
+  persistence:
+    enabled: true
+    storageClass: standard
+    size: 8Gi
+    accessMode: ReadWriteOnce
+  
+  # Service account
+  serviceAccount:
+    create: true
+    name: jenkins
+    annotations: {}
+  
+  # RBAC
+  rbac:
+    create: true
+    readSecrets: true
+  
+  # Network policy
+  networkPolicy:
+    enabled: false
+  
+  # Backup configuration
+  backup:
+    enabled: false 

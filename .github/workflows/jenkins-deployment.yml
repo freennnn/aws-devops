@@ -1,0 +1,193 @@
+name: Deploy Jenkins to Kubernetes
+
+on:
+  push:
+    branches: [task_4]
+    paths:
+      - "helm-charts/jenkins/**"
+      - ".github/workflows/jenkins-deployment.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "helm-charts/jenkins/**"
+      - ".github/workflows/jenkins-deployment.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy to"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  KUBECTL_VERSION: v1.28.0
+  HELM_VERSION: v3.12.0
+
+jobs:
+  validate-chart:
+    runs-on: ubuntu-latest
+    name: Validate Helm Chart
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Add Jenkins Helm repository
+        run: |
+          helm repo add jenkins https://charts.jenkins.io
+          helm repo update
+
+      - name: Update chart dependencies
+        run: |
+          cd helm-charts/jenkins
+          helm dependency update
+
+      - name: Lint Helm chart
+        run: |
+          cd helm-charts/jenkins
+          helm lint .
+
+      - name: Template Helm chart
+        run: |
+          cd helm-charts/jenkins
+          helm template jenkins . --debug
+
+      - name: Package Helm chart
+        run: |
+          cd helm-charts/jenkins
+          helm package .
+
+      - name: Upload chart artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: jenkins-helm-chart
+          path: helm-charts/jenkins/*.tgz
+          retention-days: 30
+
+  deploy-to-minikube:
+    runs-on: ubuntu-latest
+    name: Deploy to Minikube
+    needs: validate-chart
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Add Jenkins Helm repository
+        run: |
+          helm repo add jenkins https://charts.jenkins.io
+          helm repo update
+
+      - name: Create Jenkins namespace
+        run: |
+          kubectl create namespace jenkins || true
+
+      - name: Update chart dependencies
+        run: |
+          cd helm-charts/jenkins
+          helm dependency update
+
+      - name: Deploy Jenkins
+        run: |
+          cd helm-charts/jenkins
+          helm upgrade --install jenkins . \
+            --namespace jenkins \
+            --wait \
+            --timeout=10m \
+            --set jenkins.controller.admin.password=admin123 \
+            --set jenkins.controller.jenkinsUrl=http://localhost:8080
+
+      - name: Wait for Jenkins to be ready
+        run: |
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=jenkins -n jenkins --timeout=300s
+
+      - name: Get Jenkins status
+        run: |
+          kubectl get all -n jenkins
+          kubectl get pvc -n jenkins
+
+      - name: Test Jenkins accessibility
+        run: |
+          kubectl port-forward svc/jenkins -n jenkins 8080:8080 &
+          sleep 30
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 || echo "Jenkins might not be fully ready yet"
+
+      - name: Get Jenkins admin password
+        run: |
+          kubectl exec --namespace jenkins -it svc/jenkins -c jenkins -- /bin/cat /run/secrets/additional/chart-admin-password || echo "Password retrieval failed"
+
+      - name: Export logs
+        if: failure()
+        run: |
+          kubectl logs -l app.kubernetes.io/name=jenkins -n jenkins --tail=100
+          kubectl describe pod -l app.kubernetes.io/name=jenkins -n jenkins
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    needs: validate-chart
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "helm-charts/jenkins"
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cleanup Resources
+    needs: [deploy-to-minikube]
+    if: always() && github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Cleanup Jenkins deployment
+        run: |
+          helm uninstall jenkins -n jenkins || true
+          kubectl delete namespace jenkins || true
