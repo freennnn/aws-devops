@@ -1,0 +1,10 @@
+apiVersion: v2
+name: jenkins
+description: A Helm chart for Jenkins deployment on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "2.401.3"
+dependencies:
+  - name: jenkins
+    version: 4.3.28
+    repository: https://charts.jenkins.io 
