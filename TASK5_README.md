@@ -1,18 +1,20 @@
-# Task 5: Flask Hello World Application with Helm
+# Task 5: Flask Application with Helm
 
 ## 🎯 Overview
+
 This project demonstrates deploying a simple Flask "Hello World" application on Kubernetes using Helm charts. The application serves a simple "Hello, World!" message and is containerized with Docker.
 
 ## 📋 Requirements Met
 
 ### ✅ Evaluation Criteria (100 points)
+
 - **Helm Chart Creation (40 points)**: Complete Helm chart with templates, values, and configuration
 - **Application Deployment (50 points)**: Successfully deployed and accessible via web browser
 - **Documentation (10 points)**: Comprehensive setup and deployment documentation
 
 ## 🏗️ Project Structure
 
-```
+```bash
 ├── flask-hello-world/
 │   ├── main.py              # Simple Flask application
 │   ├── Dockerfile           # Docker image configuration
@@ -35,7 +37,7 @@ This project demonstrates deploying a simple Flask "Hello World" application on 
 ## 🔧 Prerequisites
 
 1. **Docker**: For building container images
-2. **Kubernetes Cluster**: 
+2. **Kubernetes Cluster**:
    - Minikube (recommended for local development)
    - Or any Kubernetes cluster (GKE, EKS, AKS, etc.)
 3. **kubectl**: Kubernetes command-line tool
@@ -46,7 +48,6 @@ This project demonstrates deploying a simple Flask "Hello World" application on 
 ```bash
 # Install Docker (varies by OS)
 # macOS: brew install docker
-# Ubuntu: apt-get install docker.io
 
 # Install kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
