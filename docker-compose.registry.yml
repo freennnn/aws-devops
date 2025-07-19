@@ -1,0 +1,85 @@
+version: "3.8"
+
+services:
+  registry:
+    image: registry:2
+    container_name: docker-registry
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      # Basic configuration
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+
+      # Authentication (uncomment to enable)
+      # REGISTRY_AUTH: htpasswd
+      # REGISTRY_AUTH_HTPASSWD_REALM: Registry Realm
+      # REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+
+      # TLS configuration (uncomment to enable HTTPS)
+      # REGISTRY_HTTP_TLS_CERTIFICATE: /certs/registry.crt
+      # REGISTRY_HTTP_TLS_KEY: /certs/registry.key
+
+      # Logging
+      REGISTRY_LOG_LEVEL: info
+      REGISTRY_LOG_FORMATTER: text
+
+      # Storage configuration
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
+
+      # Health check
+      REGISTRY_HEALTH_STORAGEDRIVER_ENABLED: "true"
+      REGISTRY_HEALTH_STORAGEDRIVER_INTERVAL: 10s
+      REGISTRY_HEALTH_STORAGEDRIVER_THRESHOLD: 3
+    volumes:
+      - registry_data:/var/lib/registry
+      # - ./auth:/auth:ro  # Uncomment for authentication
+      # - ./certs:/certs:ro  # Uncomment for TLS
+    networks:
+      - registry-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:5000/v2/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Registry UI (optional)
+  registry-ui:
+    image: joxit/docker-registry-ui:2.5.7
+    container_name: registry-ui
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      SINGLE_REGISTRY: "true"
+      REGISTRY_TITLE: "Local Docker Registry"
+      DELETE_IMAGES: "true"
+      SHOW_CONTENT_DIGEST: "true"
+      NGINX_PROXY_PASS_URL: "http://registry:5000"
+      SHOW_CATALOG_NB_TAGS: "true"
+      CATALOG_MIN_BRANCHES: 1
+      CATALOG_MAX_BRANCHES: 1
+      TAGLIST_PAGE_SIZE: 100
+      REGISTRY_SECURED: "false" # Set to true if using authentication
+      CATALOG_ELEMENTS_LIMIT: 1000
+    depends_on:
+      - registry
+    networks:
+      - registry-network
+
+volumes:
+  registry_data:
+    driver: local
+
+networks:
+  registry-network:
+    driver: bridge
