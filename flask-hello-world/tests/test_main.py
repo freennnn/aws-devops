@@ -98,9 +98,11 @@ class TestFlaskHelloWorld:
     
     def test_request_context(self, client):
         """Test that request context works correctly."""
-        with client.session_transaction() as sess:
-            # Test that we can access session
-            assert sess is not None
+        with app.test_request_context('/'):
+            # Test that we can access the request context
+            from flask import request
+            assert request.path == '/'
+            assert request.method == 'GET'
 
 
 class TestApplicationConfig:
