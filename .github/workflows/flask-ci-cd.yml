@@ -54,7 +54,7 @@ jobs:
           bandit -r . -f json -o bandit-report.json || true
 
       - name: Upload test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
@@ -176,7 +176,7 @@ jobs:
           kubectl get services -n flask-hello-world >> deployment-report.md
 
       - name: Upload deployment artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: deployment-report
           path: deployment-report.md
