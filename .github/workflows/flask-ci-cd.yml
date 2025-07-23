@@ -1,0 +1,207 @@
+name: Flask CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, task-6]
+    paths:
+      - "flask-hello-world/**"
+      - "helm-charts/flask-hello-world/**"
+      - "Jenkinsfile"
+      - ".github/workflows/flask-ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "flask-hello-world/**"
+      - "helm-charts/flask-hello-world/**"
+  workflow_dispatch:
+
+env:
+  REGISTRY: localhost:5000
+  IMAGE_NAME: flask-hello-world
+  PYTHON_VERSION: "3.9"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Test Flask Application
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd flask-hello-world
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov flake8 safety bandit
+
+      - name: Run unit tests
+        run: |
+          cd flask-hello-world
+          python -m pytest tests/ --junitxml=test-results.xml --cov=. --cov-report=xml --cov-report=html -v
+
+      - name: Code quality checks
+        run: |
+          cd flask-hello-world
+          flake8 . --output-file=flake8-report.txt --tee || true
+          safety check --output text > safety-report.txt || true
+          bandit -r . -f json -o bandit-report.json || true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results
+          path: |
+            flask-hello-world/test-results.xml
+            flask-hello-world/coverage.xml
+            flask-hello-world/htmlcov/
+            flask-hello-world/*-report.*
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: test
+    name: Build and Push Docker Image
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start local registry
+        run: |
+          docker run -d -p 5000:5000 --name registry registry:2
+          sleep 5
+
+      - name: Build Docker image
+        run: |
+          cd flask-hello-world
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest .
+
+      - name: Push to registry
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Test image
+        run: |
+          docker run -d -p 8080:8080 --name flask-test ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          sleep 10
+          response=$(curl -s http://localhost:8080)
+          echo "Response: $response"
+          if [[ "$response" == *"Hello, World!"* ]]; then
+            echo "✅ Application test passed"
+          else
+            echo "❌ Application test failed"
+            exit 1
+          fi
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [test, build-and-push]
+    name: Deploy to Kubernetes
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/task-6'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.12.0
+
+      - name: Load Docker image to minikube
+        run: |
+          docker build -t ${{ env.IMAGE_NAME }}:latest flask-hello-world/
+          minikube image load ${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy with Helm
+        run: |
+          kubectl create namespace flask-hello-world --dry-run=client -o yaml | kubectl apply -f -
+
+          helm upgrade --install flask-hello-world helm-charts/flask-hello-world/ \
+            --namespace flask-hello-world \
+            --set image.repository=${{ env.IMAGE_NAME }} \
+            --set image.tag=latest \
+            --set image.pullPolicy=Never \
+            --wait \
+            --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          kubectl wait --for=condition=available --timeout=300s deployment/flask-hello-world -n flask-hello-world
+          kubectl get pods -n flask-hello-world
+          kubectl get services -n flask-hello-world
+
+      - name: Test deployed application
+        run: |
+          kubectl port-forward -n flask-hello-world svc/flask-hello-world 8080:80 &
+          sleep 10
+          response=$(curl -s http://localhost:8080)
+          echo "Deployed app response: $response"
+          if [[ "$response" == *"Hello, World!"* ]]; then
+            echo "✅ Deployment verification passed"
+          else
+            echo "❌ Deployment verification failed"
+            exit 1
+          fi
+
+      - name: Generate deployment report
+        run: |
+          echo "# Deployment Report" > deployment-report.md
+          echo "- **Build**: ${{ github.run_number }}" >> deployment-report.md
+          echo "- **Commit**: ${{ github.sha }}" >> deployment-report.md
+          echo "- **Date**: $(date)" >> deployment-report.md
+          echo "" >> deployment-report.md
+          echo "## Pods Status" >> deployment-report.md
+          kubectl get pods -n flask-hello-world >> deployment-report.md
+          echo "" >> deployment-report.md
+          echo "## Services" >> deployment-report.md
+          kubectl get services -n flask-hello-world >> deployment-report.md
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-report
+          path: deployment-report.md
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [test, build-and-push, deploy]
+    if: always()
+    name: Send Notifications
+
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.test.result }}" == "success" && "${{ needs.build-and-push.result }}" == "success" && "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=🎉 Pipeline completed successfully!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Pipeline failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create notification
+        run: |
+          echo "Pipeline Status: ${{ steps.status.outputs.status }}"
+          echo "Message: ${{ steps.status.outputs.message }}"
+          echo "Build: ${{ github.run_number }}"
+          echo "Commit: ${{ github.sha }}"
