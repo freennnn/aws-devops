@@ -1,0 +1,269 @@
+name: Monitoring Stack Deployment
+
+on:
+  push:
+    branches: [task-7]
+    paths:
+      - "helm-charts/monitoring/**"
+      - "scripts/monitoring/**"
+      - ".github/workflows/monitoring-deployment.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "helm-charts/monitoring/**"
+      - "scripts/monitoring/**"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        default: "deploy"
+        type: choice
+        options:
+          - deploy
+          - cleanup
+          - test-alerts
+
+env:
+  KUBECTL_VERSION: v1.28.0
+  HELM_VERSION: v3.12.0
+
+jobs:
+  validate-charts:
+    runs-on: ubuntu-latest
+    name: Validate Helm Charts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Validate Prometheus chart
+        run: |
+          cd helm-charts/monitoring/prometheus
+          helm dependency update
+          helm lint .
+          helm template prometheus-monitoring . --debug
+
+      - name: Validate Grafana chart
+        run: |
+          cd helm-charts/monitoring/grafana
+          helm dependency update
+          helm lint .
+          helm template grafana-monitoring . --debug
+
+      - name: Package charts
+        run: |
+          cd helm-charts/monitoring/prometheus
+          helm package .
+          cd ../grafana
+          helm package .
+
+      - name: Upload chart artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-helm-charts
+          path: |
+            helm-charts/monitoring/prometheus/*.tgz
+            helm-charts/monitoring/grafana/*.tgz
+          retention-days: 30
+
+  deploy-monitoring:
+    runs-on: ubuntu-latest
+    name: Deploy Monitoring Stack
+    needs: validate-charts
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+          cpus: 4
+          memory: 8192
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/monitoring/*.sh
+
+      - name: Deploy monitoring stack
+        run: |
+          ./scripts/monitoring/deploy-monitoring.sh --skip-port-forward
+
+      - name: Wait for pods to be ready
+        run: |
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=kube-prometheus -n monitoring --timeout=300s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n monitoring --timeout=300s
+
+      - name: Verify deployment
+        run: |
+          echo "=== Monitoring Stack Status ==="
+          kubectl get all -n monitoring
+
+          echo "=== Persistent Volumes ==="
+          kubectl get pvc -n monitoring
+
+          echo "=== Alert Rules ==="
+          kubectl get prometheusrules -n monitoring
+
+      - name: Test Prometheus accessibility
+        run: |
+          kubectl port-forward -n monitoring svc/prometheus-monitoring-kube-prometheus 9090:9090 &
+          sleep 10
+
+          # Test Prometheus health
+          curl -f http://localhost:9090/-/healthy
+
+          # Test metrics endpoint
+          curl -s http://localhost:9090/api/v1/query?query=up | jq .
+
+      - name: Test Grafana accessibility
+        run: |
+          kubectl port-forward -n monitoring svc/grafana-monitoring-grafana 3000:3000 &
+          sleep 10
+
+          # Test Grafana health
+          curl -f http://localhost:3000/api/health
+
+      - name: Export deployment status
+        run: |
+          echo "# Monitoring Deployment Report" > monitoring-report.md
+          echo "- **Date**: $(date)" >> monitoring-report.md
+          echo "- **Commit**: ${{ github.sha }}" >> monitoring-report.md
+          echo "" >> monitoring-report.md
+          echo "## Prometheus Status" >> monitoring-report.md
+          kubectl get pods -n monitoring -l app.kubernetes.io/name=kube-prometheus >> monitoring-report.md
+          echo "" >> monitoring-report.md
+          echo "## Grafana Status" >> monitoring-report.md
+          kubectl get pods -n monitoring -l app.kubernetes.io/name=grafana >> monitoring-report.md
+          echo "" >> monitoring-report.md
+          echo "## Services" >> monitoring-report.md
+          kubectl get services -n monitoring >> monitoring-report.md
+
+      - name: Upload deployment report
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-deployment-report
+          path: monitoring-report.md
+
+  test-alerts:
+    runs-on: ubuntu-latest
+    name: Test Alert Rules
+    needs: deploy-monitoring
+    if: github.event.inputs.action == 'test-alerts' || github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+          cpus: 4
+          memory: 8192
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Deploy monitoring stack
+        run: |
+          chmod +x scripts/monitoring/*.sh
+          ./scripts/monitoring/deploy-monitoring.sh --skip-port-forward
+
+      - name: Install stress testing tools
+        run: |
+          # Create stress test pod
+          kubectl run stress-test --image=progrium/stress --restart=Never --rm -i --tty \
+            --overrides='{"spec":{"nodeSelector":{"kubernetes.io/os":"linux"}}}' \
+            -- --cpu 1 --timeout 120s || true
+
+      - name: Generate memory stress
+        run: |
+          # Create memory stress pod
+          kubectl run memory-stress --image=progrium/stress --restart=Never --rm -i --tty \
+            --overrides='{"spec":{"nodeSelector":{"kubernetes.io/os":"linux"}}}' \
+            -- --vm 1 --vm-bytes 128M --timeout 120s || true
+
+      - name: Wait for alerts to fire
+        run: |
+          echo "Waiting for alerts to be processed..."
+          sleep 180
+
+      - name: Check alert status
+        run: |
+          kubectl port-forward -n monitoring svc/prometheus-monitoring-kube-prometheus 9090:9090 &
+          sleep 10
+
+          # Check firing alerts
+          curl -s http://localhost:9090/api/v1/alerts | jq '.data[] | select(.state == "firing")'
+
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    needs: validate-charts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "config"
+          scan-ref: "helm-charts/monitoring"
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cleanup Resources
+    needs: [deploy-monitoring, test-alerts]
+    if: always() && (github.event.inputs.action == 'cleanup' || github.event_name == 'pull_request')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start minikube
+        uses: medyagh/setup-minikube@master
+        with:
+          driver: docker
+          kubernetes-version: v1.28.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Cleanup monitoring stack
+        run: |
+          chmod +x scripts/monitoring/*.sh
+          ./scripts/monitoring/deploy-monitoring.sh --cleanup || true

@@ -1,0 +1,255 @@
+# Prometheus Configuration for Kubernetes Monitoring
+
+prometheus:
+  # Enable Prometheus server
+  enabled: true
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 9090
+    annotations: {}
+  
+  # Ingress configuration (optional)
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: prometheus.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 8Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 1Gi
+
+  # Configuration for Prometheus server
+  server:
+    retention: "15d"
+    retentionSize: "10GB"
+    
+  # ServiceMonitor configuration
+  serviceMonitor:
+    enabled: true
+    namespace: monitoring
+    labels: {}
+    
+  # AlertManager configuration
+  alertmanager:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+  # Prometheus configuration
+  prometheusSpec:
+    # Scrape configuration
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+    
+    # Storage configuration
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: standard
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+    
+    # Resources
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    
+    # Rule selectors
+    ruleSelector:
+      matchLabels:
+        prometheus: kube-prometheus
+        role: alert-rules
+    
+    # Service monitor selector
+    serviceMonitorSelector:
+      matchLabels:
+        prometheus: kube-prometheus
+
+# Node Exporter Configuration
+nodeExporter:
+  enabled: true
+  
+  # Service configuration
+  service:
+    port: 9100
+    targetPort: 9100
+    
+  # Resources
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+
+# Kube State Metrics
+kubeStateMetrics:
+  enabled: true
+  
+  # Resources
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# Grafana integration (will be configured separately)
+grafana:
+  enabled: false  # We'll install Grafana separately
+
+# Additional exporters
+kubelet:
+  enabled: true
+  namespace: kube-system
+  
+kubeApiServer:
+  enabled: true
+  
+kubeControllerManager:
+  enabled: true
+  
+kubeScheduler:
+  enabled: true
+  
+kubeEtcd:
+  enabled: true
+
+# RBAC
+rbac:
+  create: true
+  
+# Service Account
+serviceAccount:
+  create: true
+  name: prometheus-monitoring
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  fsGroup: 65534
+
+# Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Additional configuration
+extraArgs:
+  - --web.enable-lifecycle
+  - --web.route-prefix=/
+  - --storage.tsdb.wal-compression
+
+# Configuration for scraping jobs
+additionalScrapeConfigs: |
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  - job_name: 'kubernetes-services'
+    kubernetes_sd_configs:
+      - role: service
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_service_name 
