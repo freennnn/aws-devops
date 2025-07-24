@@ -1,0 +1,338 @@
+# Grafana Configuration for Kubernetes Monitoring
+
+grafana:
+  # Admin user configuration (using separate secret)
+  admin:
+    # Admin username
+    user: admin
+    # Password will be set via secret (see adminSecret below)
+    existingSecret: grafana-admin-secret
+    existingSecretPasswordKey: password
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 3000
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: grafana.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Persistence configuration
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 8Gi
+    accessModes:
+      - ReadWriteOnce
+
+  # Resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  # Grafana configuration
+  config:
+    # Server configuration
+    server:
+      protocol: http
+      http_port: 3000
+      domain: localhost
+      root_url: "%(protocol)s://%(domain)s:%(http_port)s/"
+      serve_from_sub_path: false
+
+    # Database configuration (using SQLite for simplicity)
+    database:
+      type: sqlite3
+      path: /opt/bitnami/grafana/data/grafana.db
+
+    # Session configuration
+    session:
+      provider: file
+      provider_config: /opt/bitnami/grafana/data/sessions
+
+    # Security configuration
+    security:
+      admin_user: admin
+      admin_password: admin123  # Will be overridden by secret
+      secret_key: SW2YcwTIb9zpOOhoPsMm
+      disable_gravatar: true
+
+    # Users configuration
+    users:
+      allow_sign_up: false
+      allow_org_create: false
+      auto_assign_org: true
+      auto_assign_org_role: Viewer
+      default_theme: dark
+
+    # SMTP configuration for alerting
+    smtp:
+      enabled: true
+      host: smtp.gmail.com:587
+      user: your-email@gmail.com
+      password: your-app-password
+      skip_verify: false
+      from_address: your-email@gmail.com
+      from_name: Grafana Alerts
+      ehlo_identity: localhost
+
+    # Unified alerting configuration
+    unified_alerting:
+      enabled: true
+      
+    # Legacy alerting (disabled in favor of unified alerting)
+    alerting:
+      enabled: false
+
+    # Log configuration
+    log:
+      mode: console
+      level: info
+
+    # Feature toggles
+    feature_toggles:
+      enable: "ngalert"
+
+  # Data sources configuration
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-monitoring-kube-prometheus:9090
+          isDefault: true
+          editable: true
+          jsonData:
+            timeInterval: 30s
+            httpMethod: POST
+            manageAlerts: true
+            prometheusType: Prometheus
+            prometheusVersion: 2.45.0
+            cacheLevel: 'High'
+            incrementalQueryOverlapWindow: 10m
+
+  # Dashboard providers configuration
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          allowUiUpdates: true
+          options:
+            path: /opt/bitnami/grafana/dashboards
+
+  # Pre-configured dashboards
+  dashboards:
+    default:
+      kubernetes-cluster-monitoring:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      kubernetes-cluster-overview:
+        gnetId: 8588
+        revision: 1
+        datasource: Prometheus
+      node-exporter-dashboard:
+        gnetId: 1860
+        revision: 37
+        datasource: Prometheus
+      kubernetes-pods:
+        gnetId: 6417
+        revision: 1
+        datasource: Prometheus
+
+  # RBAC configuration
+  rbac:
+    create: true
+
+  # Service Account
+  serviceAccount:
+    create: true
+    name: grafana-monitoring
+
+  # Pod Security Context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    fsGroup: 1001
+
+  # Security Context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    runAsNonRoot: true
+    runAsUser: 1001
+
+  # Node selector
+  nodeSelector: {}
+
+  # Tolerations
+  tolerations: []
+
+  # Affinity
+  affinity: {}
+
+  # Environment variables
+  env:
+    - name: GF_SECURITY_ADMIN_PASSWORD__FILE
+      value: /etc/grafana-secret/password
+    - name: GF_SMTP_ENABLED
+      value: "true"
+    - name: GF_SMTP_HOST
+      value: "smtp.gmail.com:587"
+    - name: GF_SMTP_FROM_ADDRESS
+      value: "your-email@gmail.com"
+    - name: GF_SMTP_FROM_NAME
+      value: "Grafana Alerts"
+    - name: GF_UNIFIED_ALERTING_ENABLED
+      value: "true"
+    - name: GF_ALERTING_ENABLED
+      value: "false"
+
+  # Extra volumes for mounting secrets
+  extraVolumes:
+    - name: grafana-admin-secret
+      secret:
+        secretName: grafana-admin-secret
+
+  # Extra volume mounts
+  extraVolumeMounts:
+    - name: grafana-admin-secret
+      mountPath: /etc/grafana-secret
+      readOnly: true
+
+  # Plugins to install
+  plugins:
+    - grafana-piechart-panel
+    - grafana-worldmap-panel
+    - grafana-clock-panel
+    - natel-discrete-panel
+    - vonage-status-panel
+
+  # Notification channels (for legacy alerting - keeping for reference)
+  notifiers: {}
+
+  # Image pull secrets
+  imagePullSecrets: []
+
+  # Liveness and readiness probes
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+
+# External configurations
+
+# Admin password secret (to be created separately)
+adminSecret:
+  name: grafana-admin-secret
+  password: "MySecureGrafanaPassword123!"
+
+# SMTP configuration (can be overridden for different environments)
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  username: "your-email@gmail.com"
+  password: "your-app-password"  # Use App Password for Gmail
+  fromAddress: "your-email@gmail.com"
+  fromName: "Grafana Alerts"
+  skipVerify: false
+
+# Alert configuration
+alerting:
+  # Contact points
+  contactPoints:
+    - name: email-alerts
+      type: email
+      settings:
+        addresses: "your-email@gmail.com"
+        subject: "Grafana Alert: {{ .GroupLabels.alertname }}"
+        body: |
+          Alert: {{ .GroupLabels.alertname }}
+          Status: {{ .Status }}
+          
+          Summary: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          Description: {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+          
+          Details:
+          {{ range .Alerts }}
+          - Instance: {{ .Labels.instance }}
+          - Job: {{ .Labels.job }}
+          - Severity: {{ .Labels.severity }}
+          {{ end }}
+
+  # Notification policies
+  notificationPolicies:
+    - receiver: email-alerts
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      routes:
+        - match:
+            severity: critical
+          receiver: email-alerts
+          group_wait: 10s
+          repeat_interval: 5m
+        - match:
+            severity: warning
+          receiver: email-alerts
+          group_wait: 30s
+          repeat_interval: 30m
+
+# Custom dashboard definitions (will be created as ConfigMaps)
+customDashboards:
+  kubernetes-monitoring:
+    title: "Kubernetes Cluster Monitoring"
+    tags: ["kubernetes", "cluster", "monitoring"]
+    panels:
+      - title: "CPU Usage"
+        type: "stat"
+        targets:
+          - expr: '100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
+            legendFormat: "CPU Usage %"
+      - title: "Memory Usage" 
+        type: "stat"
+        targets:
+          - expr: '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'
+            legendFormat: "Memory Usage %"
+      - title: "Disk Usage"
+        type: "stat"
+        targets:
+          - expr: '100 - ((node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100)'
+            legendFormat: "Disk Usage %" 

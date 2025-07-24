@@ -1,0 +1,222 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubernetes-cluster-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+    app: prometheus-monitoring
+spec:
+  groups:
+    - name: kubernetes.cluster.cpu
+      interval: 30s
+      rules:
+        - alert: HighCPUUsage
+          expr: |
+            (
+              100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+            ) > 80
+          for: 2m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "High CPU usage detected on {{ $labels.instance }}"
+            description: |
+              CPU usage on node {{ $labels.instance }} is {{ $value }}%.
+              This has been ongoing for more than 2 minutes.
+              
+              Current CPU usage: {{ $value | humanize }}%
+              Threshold: 80%
+              Instance: {{ $labels.instance }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/HighCPUUsage.md"
+
+        - alert: CriticalCPUUsage
+          expr: |
+            (
+              100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+            ) > 95
+          for: 1m
+          labels:
+            severity: critical
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "Critical CPU usage detected on {{ $labels.instance }}"
+            description: |
+              CPU usage on node {{ $labels.instance }} is critically high at {{ $value }}%.
+              Immediate attention required!
+              
+              Current CPU usage: {{ $value | humanize }}%
+              Threshold: 95%
+              Instance: {{ $labels.instance }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/CriticalCPUUsage.md"
+
+    - name: kubernetes.cluster.memory
+      interval: 30s
+      rules:
+        - alert: HighMemoryUsage
+          expr: |
+            (
+              (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+            ) > 80
+          for: 2m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "High memory usage detected on {{ $labels.instance }}"
+            description: |
+              Memory usage on node {{ $labels.instance }} is {{ $value }}%.
+              Available memory is running low.
+              
+              Current memory usage: {{ $value | humanize }}%
+              Threshold: 80%
+              Instance: {{ $labels.instance }}
+              Available memory: {{ with query "node_memory_MemAvailable_bytes{instance='{{ $labels.instance }}'}" }}{{ . | first | value | humanizeBytes }}{{ end }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/HighMemoryUsage.md"
+
+        - alert: CriticalMemoryUsage
+          expr: |
+            (
+              (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+            ) > 95
+          for: 1m
+          labels:
+            severity: critical
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "Critical memory usage detected on {{ $labels.instance }}"
+            description: |
+              Memory usage on node {{ $labels.instance }} is critically high at {{ $value }}%.
+              System may become unstable. Immediate attention required!
+              
+              Current memory usage: {{ $value | humanize }}%
+              Threshold: 95%
+              Instance: {{ $labels.instance }}
+              Available memory: {{ with query "node_memory_MemAvailable_bytes{instance='{{ $labels.instance }}'}" }}{{ . | first | value | humanizeBytes }}{{ end }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/CriticalMemoryUsage.md"
+
+        - alert: OutOfMemory
+          expr: |
+            node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 2
+          for: 30s
+          labels:
+            severity: critical
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "Node {{ $labels.instance }} is running out of memory"
+            description: |
+              Node {{ $labels.instance }} has less than 2% of memory available.
+              
+              Available memory: {{ $value | humanize }}%
+              Instance: {{ $labels.instance }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/OutOfMemory.md"
+
+    - name: kubernetes.cluster.disk
+      interval: 30s
+      rules:
+        - alert: HighDiskUsage
+          expr: |
+            (
+              100 - ((node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100)
+            ) > 80
+          for: 5m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "High disk usage detected on {{ $labels.instance }}"
+            description: |
+              Disk usage on root filesystem of {{ $labels.instance }} is {{ $value }}%.
+              
+              Current disk usage: {{ $value | humanize }}%
+              Threshold: 80%
+              Instance: {{ $labels.instance }}
+              Mount point: {{ $labels.mountpoint }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/HighDiskUsage.md"
+
+        - alert: CriticalDiskUsage
+          expr: |
+            (
+              100 - ((node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100)
+            ) > 95
+          for: 2m
+          labels:
+            severity: critical
+            service: kubernetes
+            component: node
+          annotations:
+            summary: "Critical disk usage detected on {{ $labels.instance }}"
+            description: |
+              Disk usage on root filesystem of {{ $labels.instance }} is critically high at {{ $value }}%.
+              
+              Current disk usage: {{ $value | humanize }}%
+              Threshold: 95%
+              Instance: {{ $labels.instance }}
+              Mount point: {{ $labels.mountpoint }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/cluster/CriticalDiskUsage.md"
+
+    - name: kubernetes.pods
+      interval: 30s
+      rules:
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total[5m]) * 60 * 5 > 0
+          for: 5m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: pod
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting {{ $value }} times per 5 minutes.
+              
+              Pod: {{ $labels.pod }}
+              Namespace: {{ $labels.namespace }}
+              Container: {{ $labels.container }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/kubernetes/PodCrashLooping.md"
+
+        - alert: PodNotReady
+          expr: |
+            kube_pod_status_ready{condition="false"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: pod
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+            description: |
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for more than 10 minutes.
+              
+              Pod: {{ $labels.pod }}
+              Namespace: {{ $labels.namespace }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/kubernetes/PodNotReady.md"
+
+    - name: kubernetes.deployments
+      interval: 30s
+      rules:
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas{namespace!="kube-system"} != kube_deployment_status_replicas_available{namespace!="kube-system"}
+          for: 5m
+          labels:
+            severity: warning
+            service: kubernetes
+            component: deployment
+          annotations:
+            summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has mismatched replicas"
+            description: |
+              Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has {{ $value }} available replicas, but should have {{ query "kube_deployment_spec_replicas{namespace='{{ $labels.namespace }}',deployment='{{ $labels.deployment }}'}" | first | value }} replicas.
+              
+              Deployment: {{ $labels.deployment }}
+              Namespace: {{ $labels.namespace }}
+            runbook_url: "https://github.com/kubernetes-monitoring/runbooks/blob/master/alerts/kubernetes/DeploymentReplicasMismatch.md" 
